@@ -1,7 +1,3 @@
-# Ludoteca Viva – pastel UI v2
+# Ludoteca Viva – pastel UI v3
 
-Correcciones:
-- Eliminados botones falsos "Ver todos".
-- Gráficos dentro de marcos, sin desbordes.
-- Fallback de imagen para juegos sin portada.
-- Estilo pastel con menos contraste.
+Correcciones: notas visibles como texto real, gráficos en contenedores nativos de Streamlit, sin botones falsos, fallback de imagen.
