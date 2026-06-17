@@ -1,18 +1,7 @@
-# Ludoteca Viva – pastel UI
+# Ludoteca Viva – pastel UI v2
 
-Interfaz Streamlit para la Google Sheet viva de la ludoteca.
-
-Incluye:
-- Estética pastel.
-- Sidebar de filtros.
-- Métricas superiores.
-- Tabla principal con miniaturas, BGG ID y link a BoardGameGeek.
-- Paneles inferiores.
-- Gráficos simples.
-- Sin segunda fila de botones de acción.
-
-Archivos:
-- app.py
-- requirements.txt
-- README.md
-- bgg_catalog.json
+Correcciones:
+- Eliminados botones falsos "Ver todos".
+- Gráficos dentro de marcos, sin desbordes.
+- Fallback de imagen para juegos sin portada.
+- Estilo pastel con menos contraste.
