@@ -1,3 +1,3 @@
-# Ludoteca viva Dashboard v2
+# Ludoteca Viva 3.0
 
-Corrige filtros y desplegables.
+Tabla central, filtros combinables, links BGG, ficha rápida, azar y recomendaciones.
