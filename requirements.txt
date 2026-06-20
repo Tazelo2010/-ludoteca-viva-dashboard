@@ -3,3 +3,5 @@ pandas
 plotly
 
 streamlit-aggrid
+
+requests>=2.31

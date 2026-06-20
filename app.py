@@ -1,7 +1,11 @@
 
 import json
 import re
+import time
+import xml.etree.ElementTree as ET
 from datetime import datetime
+
+import requests
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -13,6 +17,8 @@ CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?forma
 BGG_URL = "https://boardgamegeek.com/boardgame/"
 CATALOG_FILE = "bgg_catalog.json"
 PLACEHOLDER_IMG = "https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f3b2.png"
+# Para esta edición de Take 5 usamos la ficha clásica indicada por Marcelo.
+BGG_METADATA_ALIASES = {"246912": "432"}
 
 st.set_page_config(page_title="Ludoteca Viva", page_icon="🎲", layout="wide", initial_sidebar_state="expanded")
 
@@ -78,6 +84,63 @@ def load_catalog():
     except Exception:
         return {}, {}
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_bgg_live(ids):
+    """Completa imágenes y el número de jugadores mejor valorado por la comunidad BGG."""
+    clean_ids = []
+    reverse_alias = {}
+    for original in ids:
+        original = normalize_bgg_id(original)
+        if not original:
+            continue
+        source = BGG_METADATA_ALIASES.get(original, original)
+        reverse_alias[source] = original
+        if source not in clean_ids:
+            clean_ids.append(source)
+
+    result = {}
+    for start in range(0, len(clean_ids), 20):
+        batch = clean_ids[start:start + 20]
+        try:
+            response = requests.get(
+                "https://boardgamegeek.com/xmlapi2/thing",
+                params={"id": ",".join(batch), "stats": 1},
+                timeout=25,
+                headers={"User-Agent": "LudotecaViva-Tazelo2010/1.0"},
+            )
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            for item in root.findall("item"):
+                source_id = item.attrib.get("id", "")
+                original_id = reverse_alias.get(source_id, source_id)
+                image = (item.findtext("thumbnail") or item.findtext("image") or "").strip()
+                best_scores = []
+                poll = item.find("poll[@name='suggested_numplayers']")
+                if poll is not None:
+                    for results in poll.findall("results"):
+                        label = results.attrib.get("numplayers", "")
+                        best = 0
+                        for vote in results.findall("result"):
+                            if vote.attrib.get("value") == "Best":
+                                try:
+                                    best = int(vote.attrib.get("numvotes", "0"))
+                                except ValueError:
+                                    best = 0
+                        if label and best > 0:
+                            best_scores.append((label, best))
+                best_at = ""
+                if best_scores:
+                    top = max(score for _, score in best_scores)
+                    # Conserva opciones casi empatadas para no dar una falsa precisión.
+                    labels = [label for label, score in best_scores if score >= top * 0.90]
+                    best_at = ", ".join(labels)
+                result[original_id] = {"thumb": image, "best_at": best_at}
+        except Exception:
+            pass
+        if start + 20 < len(clean_ids):
+            time.sleep(1.0)
+    return result
+
 @st.cache_data(ttl=300)
 def load_data():
     df = pd.read_csv(CSV_URL)
@@ -87,12 +150,14 @@ def load_data():
     by_id, by_name = load_catalog()
     bgg_col = 'Id BGG' if 'Id BGG' in df.columns else ('BGG ID' if 'BGG ID' in df.columns else None)
     df['BGG_ID'] = df[bgg_col].apply(normalize_bgg_id) if bgg_col else ''
+    live_bgg = load_bgg_live(tuple(df['BGG_ID'].dropna().astype(str).tolist()))
     def catalog_info(row):
         bid = row.get('BGG_ID', '')
         nm = str(row.get('Nombre', '')).strip().lower()
         return by_id.get(bid) or by_name.get(nm) or {}
     df['_catalog'] = df.apply(catalog_info, axis=1)
-    df['Thumb'] = df['_catalog'].apply(lambda x: x.get('thumb') or PLACEHOLDER_IMG)
+    df['Thumb'] = df.apply(lambda row: (live_bgg.get(row['BGG_ID'], {}).get('thumb') or row['_catalog'].get('thumb') or PLACEHOLDER_IMG), axis=1)
+    df['Mejor a'] = df['BGG_ID'].apply(lambda bid: live_bgg.get(bid, {}).get('best_at', ''))
     if 'Puntuación BGG' in df.columns:
         df['Rating_num'] = pd.to_numeric(df['Puntuación BGG'].astype(str).str.replace(',', '.', regex=False), errors='coerce')
     else:
@@ -162,6 +227,50 @@ def friction_simple(value):
     if 'media' in low: return 'Media'
     if 'baja' in low: return 'Baja'
     return val
+
+def parse_time_range(text):
+    nums = [int(x) for x in re.findall(r'\d+', str(text))]
+    if not nums:
+        return None, None
+    return nums[0], nums[-1]
+
+def estimate_total_time(row, selected_players):
+    """Estimación práctica: juego + preparación + explicación inicial."""
+    play_min, play_max = parse_time_range(row.get('Tiempo', ''))
+    if play_min is None:
+        return ''
+
+    min_p, max_p = parse_players(row.get('Jugadores', ''))
+    if selected_players != 'Todos' and min_p is not None and max_p is not None:
+        n = int(selected_players)
+        if max_p > min_p:
+            ratio = max(0, min(1, (n - min_p) / (max_p - min_p)))
+            central = play_min + (play_max - play_min) * ratio
+        else:
+            central = play_max
+        play_low = central * 0.90
+        play_high = central * 1.10
+    else:
+        play_low, play_high = play_min, play_max
+
+    weight = row.get('Peso_num', 2.5)
+    try:
+        weight = float(weight) if pd.notna(weight) else 2.5
+    except Exception:
+        weight = 2.5
+    friction = friction_simple(row.get('Fricción para mesa', 'Media'))
+    friction_setup = {'Baja': 0, 'Media': 4, 'Alta': 9}.get(friction, 4)
+    friction_teach = {'Baja': 0, 'Media': 6, 'Alta': 14}.get(friction, 6)
+    setup = 3 + weight * 2.2 + friction_setup
+    teach = 5 + weight * 5.0 + friction_teach
+    extra_low = setup + teach
+    extra_high = extra_low * 1.25
+
+    total_low = int(round((play_low + extra_low) / 5.0) * 5)
+    total_high = int(round((play_high + extra_high) / 5.0) * 5)
+    if total_high <= total_low + 5:
+        return f'≈ {total_low} min'
+    return f'≈ {total_low}–{total_high} min'
 
 def small_list(items):
     if not items: return '<small>Sin juegos con este filtro.</small>'
@@ -243,8 +352,9 @@ for col,color,icon,value,label in metrics:
 
 st.markdown('<div class="table-title">Colección actual filtrada</div>', unsafe_allow_html=True)
 table = f.copy()
-table['Juego'] = table['Nombre']; table['BGG ID'] = table['BGG_ID']; table['Rating BGG'] = table['Rating_num'].round(2); table['Peso'] = table['Peso_num'].round(2); table['Partidas'] = table['Partidas_num']; table['Última partida'] = table['Ultima_dt'].dt.strftime('%Y-%m-%d').fillna(''); table['Hace cuánto'] = table['Tiempo desde última partida']; table['Fricción'] = table['Fricción para mesa'].apply(friction_simple); table['Notas personales'] = table['Notas'].astype(str); table['Motivo fricción'] = table['Motivo de fricción'].astype(str)
-cols=['Thumb','Juego','BGG ID','BGG','Tipo','Jugadores','Tiempo','Peso','Rating BGG','Partidas','Última partida','Hace cuánto','Fricción','Notas personales','Motivo fricción']
+table['Juego'] = table['Nombre']; table['BGG ID'] = table['BGG_ID']; table['Rating BGG'] = table['Rating_num'].round(2); table['Peso'] = table['Peso_num'].round(2); table['Partidas'] = table['Partidas_num']; table['Última partida'] = table['Ultima_dt'].dt.strftime('%Y-%m-%d').fillna(''); table['Hace cuánto'] = table['Tiempo desde última partida']; table['Fricción'] = table['Fricción para mesa'].apply(friction_simple); table['Notas personales'] = table['Notas'].astype(str)
+table['Tiempo total est.'] = table.apply(lambda row: estimate_total_time(row, players_filter), axis=1)
+cols=['Thumb','Juego','BGG','Tipo','Jugadores','Mejor a','Tiempo','Tiempo total est.','Peso','Rating BGG','Partidas','Última partida','Hace cuánto','Fricción','Notas personales']
 cols=[c for c in cols if c in table.columns]
 grid_df = table[cols].copy()
 
@@ -286,17 +396,20 @@ gb.configure_column('Thumb', header_name='', pinned='left', lockPinned=True, wid
                       getGui() { return this.eGui; }
                     }
                     """))
-gb.configure_column('Juego', pinned='left', lockPinned=True, width=270, minWidth=220, maxWidth=340, tooltipField='Juego')
-gb.configure_column('BGG ID', width=92, minWidth=82, maxWidth=110)
-gb.configure_column('BGG', width=62, minWidth=58, maxWidth=70, cellRenderer=JsCode("""
+gb.configure_column('Juego', pinned='left', lockPinned=True, width=270, minWidth=220, maxWidth=340, tooltipField='Juego', cellRenderer=JsCode("""
 function(params) {
-  if (!params.value) return '';
-  return `<a href="${params.value}" target="_blank" style="text-decoration:none;font-weight:700">↗</a>`;
+  const text = params.value || '';
+  const url = params.data && params.data.BGG ? params.data.BGG : '';
+  if (!url) return text;
+  return `<a href="${url}" target="_blank" style="color:inherit;text-decoration:none;font-weight:600">${text}</a>`;
 }
 """))
+gb.configure_column('BGG', hide=True)
 gb.configure_column('Tipo', width=120, minWidth=105, maxWidth=145, tooltipField='Tipo')
 gb.configure_column('Jugadores', width=95, minWidth=88, maxWidth=110)
+gb.configure_column('Mejor a', width=92, minWidth=84, maxWidth=120, tooltipField='Mejor a')
 gb.configure_column('Tiempo', width=96, minWidth=88, maxWidth=110)
+gb.configure_column('Tiempo total est.', width=142, minWidth=132, maxWidth=170, tooltipField='Tiempo total est.')
 gb.configure_column('Peso', width=72, minWidth=68, maxWidth=82)
 gb.configure_column('Rating BGG', width=100, minWidth=92, maxWidth=115)
 gb.configure_column('Partidas', width=82, minWidth=76, maxWidth=92)
@@ -304,7 +417,6 @@ gb.configure_column('Última partida', width=118, minWidth=110, maxWidth=130)
 gb.configure_column('Hace cuánto', width=112, minWidth=104, maxWidth=125)
 gb.configure_column('Fricción', width=88, minWidth=82, maxWidth=100)
 gb.configure_column('Notas personales', width=250, minWidth=190, maxWidth=360, tooltipField='Notas personales')
-gb.configure_column('Motivo fricción', width=300, minWidth=220, maxWidth=420, tooltipField='Motivo fricción')
 AgGrid(
     grid_df,
     gridOptions=gb.build(),
@@ -313,13 +425,14 @@ AgGrid(
     allow_unsafe_jscode=True,
     theme='streamlit',
     update_on=[],
-    key='coleccion_filtrada_grid_v7',
+    key='coleccion_filtrada_grid_v8',
 )
+st.caption('Tiempo total estimado = preparación + explicación inicial + partida. Es una guía práctica; se ajusta al número de jugadores elegido, al peso BGG y a la fricción registrada.')
 
 notes_df = table[table['Notas personales'].astype(str).str.strip() != '']
 if len(notes_df):
     with st.expander(f'📝 Notas personales visibles ({len(notes_df)})', expanded=False):
-        st.dataframe(notes_df[['Juego','Notas personales','Motivo fricción']].copy(), use_container_width=True, hide_index=True, height=240)
+        st.dataframe(notes_df[['Juego','Notas personales']].copy(), use_container_width=True, hide_index=True, height=240)
 
 p1,p2,p3,p4 = st.columns(4)
 sin_estrenar = f[f['Partidas_num'] == 0].sort_values(['Peso_num','Rating_num'], ascending=[True,False], na_position='last')['Nombre'].head(5).tolist()
