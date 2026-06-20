@@ -19,6 +19,10 @@ CATALOG_FILE = "bgg_catalog.json"
 PLACEHOLDER_IMG = "https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f3b2.png"
 # Para esta edición de Take 5 usamos la ficha clásica indicada por Marcelo.
 BGG_METADATA_ALIASES = {"246912": "432"}
+MANUAL_IMAGE_OVERRIDES = {
+    "417197": "https://www.variantes.com/57017-large_default/rebirth.jpg",
+    "246912": "https://boardgamecafe.biz/products/2546-take-5-and-take-a-number/images/gamebox/T/Take5Number/Take5Number_BoxFrontTb.jpg",
+}
 
 st.set_page_config(page_title="Ludoteca Viva", page_icon="🎲", layout="wide", initial_sidebar_state="expanded")
 
@@ -102,13 +106,24 @@ def load_bgg_live(ids):
     for start in range(0, len(clean_ids), 20):
         batch = clean_ids[start:start + 20]
         try:
-            response = requests.get(
-                "https://boardgamegeek.com/xmlapi2/thing",
-                params={"id": ",".join(batch), "stats": 1},
-                timeout=25,
-                headers={"User-Agent": "LudotecaViva-Tazelo2010/1.0"},
-            )
-            response.raise_for_status()
+            response = None
+            for attempt in range(5):
+                response = requests.get(
+                    "https://boardgamegeek.com/xmlapi2/thing",
+                    params={"id": ",".join(batch), "stats": 1},
+                    timeout=30,
+                    headers={"User-Agent": "LudotecaViva-Tazelo2010/1.1"},
+                )
+                # BGG suele responder 202 mientras prepara el lote.
+                if response.status_code == 202:
+                    time.sleep(2.5 + attempt * 1.5)
+                    continue
+                response.raise_for_status()
+                if response.content.strip():
+                    break
+                time.sleep(1.5)
+            if response is None or response.status_code != 200 or not response.content.strip():
+                raise RuntimeError("BGG no devolvió datos")
             root = ET.fromstring(response.content)
             for item in root.findall("item"):
                 source_id = item.attrib.get("id", "")
@@ -156,8 +171,8 @@ def load_data():
         nm = str(row.get('Nombre', '')).strip().lower()
         return by_id.get(bid) or by_name.get(nm) or {}
     df['_catalog'] = df.apply(catalog_info, axis=1)
-    df['Thumb'] = df.apply(lambda row: (live_bgg.get(row['BGG_ID'], {}).get('thumb') or row['_catalog'].get('thumb') or PLACEHOLDER_IMG), axis=1)
-    df['Mejor a'] = df['BGG_ID'].apply(lambda bid: live_bgg.get(bid, {}).get('best_at', ''))
+    df['Thumb'] = df.apply(lambda row: (MANUAL_IMAGE_OVERRIDES.get(row['BGG_ID']) or live_bgg.get(row['BGG_ID'], {}).get('thumb') or row['_catalog'].get('thumb') or PLACEHOLDER_IMG), axis=1)
+    df['Mejor a'] = df['BGG_ID'].apply(lambda bid: live_bgg.get(bid, {}).get('best_at') or 'Sin dato BGG')
     if 'Puntuación BGG' in df.columns:
         df['Rating_num'] = pd.to_numeric(df['Puntuación BGG'].astype(str).str.replace(',', '.', regex=False), errors='coerce')
     else:
@@ -397,11 +412,25 @@ gb.configure_column('Thumb', header_name='', pinned='left', lockPinned=True, wid
                     }
                     """))
 gb.configure_column('Juego', pinned='left', lockPinned=True, width=270, minWidth=220, maxWidth=340, tooltipField='Juego', cellRenderer=JsCode("""
-function(params) {
-  const text = params.value || '';
-  const url = params.data && params.data.BGG ? params.data.BGG : '';
-  if (!url) return text;
-  return `<a href="${url}" target="_blank" style="color:inherit;text-decoration:none;font-weight:600">${text}</a>`;
+class GameLinkRenderer {
+  init(params) {
+    this.eGui = document.createElement('a');
+    this.eGui.textContent = params.value || '';
+    const url = params.data && params.data.BGG ? params.data.BGG : '';
+    if (url) {
+      this.eGui.href = url;
+      this.eGui.target = '_blank';
+      this.eGui.rel = 'noopener noreferrer';
+    }
+    this.eGui.style.color = 'inherit';
+    this.eGui.style.textDecoration = 'none';
+    this.eGui.style.fontWeight = '600';
+    this.eGui.style.display = 'block';
+    this.eGui.style.overflow = 'hidden';
+    this.eGui.style.textOverflow = 'ellipsis';
+    this.eGui.style.whiteSpace = 'nowrap';
+  }
+  getGui() { return this.eGui; }
 }
 """))
 gb.configure_column('BGG', hide=True)
@@ -425,7 +454,7 @@ AgGrid(
     allow_unsafe_jscode=True,
     theme='streamlit',
     update_on=[],
-    key='coleccion_filtrada_grid_v8',
+    key='coleccion_filtrada_grid_v9',
 )
 st.caption('Tiempo total estimado = preparación + explicación inicial + partida. Es una guía práctica; se ajusta al número de jugadores elegido, al peso BGG y a la fricción registrada.')
 
