@@ -5,6 +5,7 @@ from datetime import datetime
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 
 SPREADSHEET_ID = "19onyfrqnhTH4UeuMvDxgOnlemNa-SHdkz_wVlyEXyac"
 SHEET_GID = "1910202614"
@@ -20,14 +21,17 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .stApp { background: radial-gradient(circle at 20% 0%, rgba(233,247,236,.75), transparent 26%), radial-gradient(circle at 95% 5%, rgba(255,238,222,.9), transparent 28%), #fbf7ef; color:#173b36; }
-.block-container { padding-top: 1.1rem; padding-bottom: 2rem; max-width: 1600px; }
+.block-container { padding-top: .35rem; padding-bottom: 2rem; max-width: 1600px; }
+header[data-testid="stHeader"] { height:0; min-height:0; background:transparent; }
+div[data-testid="stToolbar"] { top:.35rem; right:.5rem; }
+#MainMenu { visibility:hidden; }
 section[data-testid="stSidebar"] { background:#fffaf1; border-right:1px solid #eadfcd; }
 div[data-testid="stSidebarHeader"] { display:none; }
 .sidebar-title { display:flex; align-items:center; gap:10px; margin:6px 0 18px 0; }
 .sidebar-icon { width:32px;height:32px;border-radius:10px;background:#e6f5e8;color:#0d7a54; display:flex;align-items:center;justify-content:center;font-size:18px; }
 .sidebar-title-text { color:#073f3a;font-weight:850;font-size:18px;letter-spacing:.2px; }
-section[data-testid="stSidebar"] label { color:#173b36!important; font-weight:700!important; font-size:13px!important; }
-.filter-label { color:#173b36; font-weight:700; font-size:13px; margin:10px 0 2px 0; }
+.filter-title { color:#123f39; font-weight:800; font-size:15px; margin:14px 0 5px 0; line-height:1.2; }
+section[data-testid="stSidebar"] label { color:#173b36!important; font-weight:500!important; font-size:14px!important; }
 section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] div[data-baseweb="select"] { background:#fffdf9!important; border:1px solid #e6dbca!important; border-radius:11px!important; color:#173b36!important; }
 section[data-testid="stSidebar"] div[data-baseweb="select"] * { color:#173b36!important; }
 .header { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:18px; }
@@ -141,9 +145,11 @@ def player_match(text, selected):
     n = int(selected)
     return mn <= n <= mx
 
-def contains_type(value, selected):
-    if selected == 'Todos': return True
-    return selected.lower() in str(value).lower()
+def contains_any_type(value, selected_types):
+    if not selected_types:
+        return False
+    text = str(value).lower()
+    return any(selected.lower() in text for selected in selected_types)
 
 def parse_time_max(text):
     nums = [int(x) for x in re.findall(r'\d+', str(text))]
@@ -168,24 +174,44 @@ def apply_chart_layout(fig, height=260):
     return fig
 
 df = load_data()
+# La app muestra solo las tres categorías operativas elegidas.
+df = df[~df['Tipo'].str.contains('Party', case=False, na=False)].copy()
 
 st.sidebar.markdown('<div class="sidebar-title"><div class="sidebar-icon">⌘</div><div class="sidebar-title-text">FILTROS</div></div>', unsafe_allow_html=True)
-search = st.sidebar.text_input('Buscar', placeholder='Escribí para buscar...')
-type_filter = st.sidebar.selectbox('Tipo', ['Todos', 'Competitivo', 'Cooperativo', 'Campaña', 'Party'])
-players_filter = st.sidebar.selectbox('Jugadores', ['Todos', '1', '2', '3', '4', '5', '6', '7', '8'])
-st.sidebar.markdown('<div class="filter-label">Fricción</div>', unsafe_allow_html=True)
+
+def sidebar_title(text):
+    st.sidebar.markdown(f'<div class="filter-title">{text}</div>', unsafe_allow_html=True)
+
+sidebar_title('Buscar')
+search = st.sidebar.text_input('Buscar', placeholder='Escribí para buscar...', label_visibility='collapsed')
+
+sidebar_title('Jugadores')
+players_filter = st.sidebar.selectbox('Jugadores', ['Todos', '1', '2', '3', '4', '5', '6', '7', '8'], label_visibility='collapsed')
+
+sidebar_title('Tipo')
+type_competitivo = st.sidebar.checkbox('Competitivo', value=True, key='tipo_competitivo')
+type_cooperativo = st.sidebar.checkbox('Cooperativo', value=True, key='tipo_cooperativo')
+type_campana = st.sidebar.checkbox('Campaña', value=True, key='tipo_campana')
+type_selected = [label for label, active in [('Competitivo', type_competitivo), ('Cooperativo', type_cooperativo), ('Campaña', type_campana)] if active]
+
+sidebar_title('Fricción')
 friction_baja = st.sidebar.checkbox('Baja', value=True, key='friccion_baja')
 friction_media = st.sidebar.checkbox('Media', value=True, key='friccion_media')
 friction_alta = st.sidebar.checkbox('Alta', value=True, key='friccion_alta')
 friction_selected = [label for label, active in [('Baja', friction_baja), ('Media', friction_media), ('Alta', friction_alta)] if active]
-new_filter = st.sidebar.selectbox('Estreno', ['Todos', 'Sin estrenar', 'Estrenados'])
-rotation_filter = st.sidebar.selectbox('Rotación', ['Todos', '< 1 mes', '1–6 meses', '6+ meses', 'Nunca'])
-weight_filter = st.sidebar.selectbox('Peso BGG', ['Todos', 'Ligero', 'Medio', 'Pesado'])
-games_filter = st.sidebar.selectbox('Partidas', ['Todos', '0', '1–5', '6–10', '10+'])
+
+sidebar_title('Estreno')
+new_filter = st.sidebar.selectbox('Estreno', ['Todos', 'Sin estrenar', 'Estrenados'], label_visibility='collapsed')
+sidebar_title('Rotación')
+rotation_filter = st.sidebar.selectbox('Rotación', ['Todos', '< 1 mes', '1–6 meses', '6+ meses', 'Nunca'], label_visibility='collapsed')
+sidebar_title('Peso BGG')
+weight_filter = st.sidebar.selectbox('Peso BGG', ['Todos', 'Ligero', 'Medio', 'Pesado'], label_visibility='collapsed')
+sidebar_title('Partidas')
+games_filter = st.sidebar.selectbox('Partidas', ['Todos', '0', '1–5', '6–10', '10+'], label_visibility='collapsed')
 
 f = df.copy()
 if search: f = f[f['Nombre'].str.contains(search, case=False, na=False)]
-f = f[f['Tipo'].apply(lambda x: contains_type(x, type_filter))]
+f = f[f['Tipo'].apply(lambda x: contains_any_type(x, type_selected))]
 f = f[f['Jugadores'].apply(lambda x: player_match(x, players_filter))]
 if friction_selected:
     friction_values = f['Fricción para mesa'].apply(friction_simple)
@@ -220,7 +246,60 @@ table = f.copy()
 table['Juego'] = table['Nombre']; table['BGG ID'] = table['BGG_ID']; table['Rating BGG'] = table['Rating_num'].round(2); table['Peso'] = table['Peso_num'].round(2); table['Partidas'] = table['Partidas_num']; table['Última partida'] = table['Ultima_dt'].dt.strftime('%Y-%m-%d').fillna(''); table['Hace cuánto'] = table['Tiempo desde última partida']; table['Fricción'] = table['Fricción para mesa'].apply(friction_simple); table['Notas personales'] = table['Notas'].astype(str); table['Motivo fricción'] = table['Motivo de fricción'].astype(str)
 cols=['Thumb','Juego','BGG ID','BGG','Tipo','Jugadores','Tiempo','Peso','Rating BGG','Partidas','Última partida','Hace cuánto','Fricción','Notas personales','Motivo fricción']
 cols=[c for c in cols if c in table.columns]
-st.dataframe(table[cols], use_container_width=True, hide_index=True, height=520, column_config={'Thumb': st.column_config.ImageColumn('', width='small'), 'BGG': st.column_config.LinkColumn('BGG', display_text='↗'), 'Juego': st.column_config.TextColumn('Juego', width='large'), 'Notas personales': st.column_config.TextColumn('Notas personales', width='large'), 'Motivo fricción': st.column_config.TextColumn('Motivo fricción', width='large'), 'Fricción': st.column_config.TextColumn('Fricción', width='small')})
+grid_df = table[cols].copy()
+
+# AgGrid permite fijar a la izquierda la portada y el nombre mientras se desplaza el resto.
+gb = GridOptionsBuilder.from_dataframe(grid_df)
+gb.configure_default_column(resizable=True, sortable=True, filter=False, wrapText=False)
+gb.configure_grid_options(rowHeight=52, headerHeight=42, suppressRowClickSelection=True)
+gb.configure_column('Thumb', header_name='', pinned='left', width=72, minWidth=72, maxWidth=72, sortable=False,
+                    cellRenderer=JsCode("""
+                    class ImgRenderer {
+                      init(params) {
+                        this.eGui = document.createElement('div');
+                        this.eGui.style.display = 'flex';
+                        this.eGui.style.alignItems = 'center';
+                        this.eGui.style.justifyContent = 'center';
+                        const img = document.createElement('img');
+                        img.src = params.value || '';
+                        img.style.width = '42px';
+                        img.style.height = '42px';
+                        img.style.objectFit = 'cover';
+                        img.style.borderRadius = '5px';
+                        this.eGui.appendChild(img);
+                      }
+                      getGui() { return this.eGui; }
+                    }
+                    """))
+gb.configure_column('Juego', pinned='left', width=310, minWidth=240)
+gb.configure_column('BGG ID', width=95)
+gb.configure_column('BGG', width=70, cellRenderer=JsCode("""
+function(params) {
+  if (!params.value) return '';
+  return `<a href="${params.value}" target="_blank" style="text-decoration:none;font-weight:700">↗</a>`;
+}
+"""))
+gb.configure_column('Tipo', width=120)
+gb.configure_column('Jugadores', width=105)
+gb.configure_column('Tiempo', width=105)
+gb.configure_column('Peso', width=78)
+gb.configure_column('Rating BGG', width=105)
+gb.configure_column('Partidas', width=85)
+gb.configure_column('Última partida', width=125)
+gb.configure_column('Hace cuánto', width=125)
+gb.configure_column('Fricción', width=95)
+gb.configure_column('Notas personales', width=330, wrapText=True, autoHeight=True)
+gb.configure_column('Motivo fricción', width=330, wrapText=True, autoHeight=True)
+AgGrid(
+    grid_df,
+    gridOptions=gb.build(),
+    height=520,
+    fit_columns_on_grid_load=False,
+    allow_unsafe_jscode=True,
+    theme='streamlit',
+    update_on=[],
+    key='coleccion_filtrada_grid',
+)
 
 notes_df = table[table['Notas personales'].astype(str).str.strip() != '']
 if len(notes_df):
@@ -251,8 +330,8 @@ with g1:
 with g2:
     with st.container(border=True):
         st.markdown('### Tipo')
-        rows=[{'Tipo':t,'Cantidad':int(f['Tipo'].str.contains(t, case=False, na=False).sum())} for t in ['Competitivo','Cooperativo','Campaña','Party']]
-        fig=px.bar(pd.DataFrame(rows), y='Tipo', x='Cantidad', orientation='h', color='Tipo', color_discrete_map={'Competitivo':'#6ec28a','Cooperativo':'#7fb8e8','Campaña':'#b99be7','Party':'#f3c55d'})
+        rows=[{'Tipo':t,'Cantidad':int(f['Tipo'].str.contains(t, case=False, na=False).sum())} for t in ['Competitivo','Cooperativo','Campaña']]
+        fig=px.bar(pd.DataFrame(rows), y='Tipo', x='Cantidad', orientation='h', color='Tipo', color_discrete_map={'Competitivo':'#6ec28a','Cooperativo':'#7fb8e8','Campaña':'#b99be7'})
         st.plotly_chart(apply_chart_layout(fig,260), use_container_width=True)
 with g3:
     with st.container(border=True):
