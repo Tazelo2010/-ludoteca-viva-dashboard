@@ -17,11 +17,11 @@ CSV_URL = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?forma
 BGG_URL = "https://boardgamegeek.com/boardgame/"
 CATALOG_FILE = "bgg_catalog.json"
 PLACEHOLDER_IMG = "https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f3b2.png"
-# Para esta edición de Take 5 usamos la ficha clásica indicada por Marcelo.
-BGG_METADATA_ALIASES = {"246912": "432"}
+# Usa siempre el BGG ID real de cada edición.
+BGG_METADATA_ALIASES = {}
 MANUAL_IMAGE_OVERRIDES = {
     "417197": "https://www.variantes.com/57017-large_default/rebirth.jpg",
-    "246912": "https://boardgamecafe.biz/products/2546-take-5-and-take-a-number/images/gamebox/T/Take5Number/Take5Number_BoxFrontTb.jpg",
+    "246912": "https://www.amigo.games/wp-content/uploads/2024/08/18415_box.jpg",
 }
 
 st.set_page_config(page_title="Ludoteca Viva", page_icon="🎲", layout="wide", initial_sidebar_state="expanded")

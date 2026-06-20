@@ -5,3 +5,9 @@ Correcciones:
 - Se agregan imágenes de respaldo para Rebirth y Take 5 & Take A Number.
 - La consulta de “Mejor a” reintenta cuando BGG responde 202.
 - Si BGG no responde, la celda muestra “Sin dato BGG” en vez de quedar vacía.
+
+
+## v10
+- Take 5 & Take A Number usa su BGG ID real 246912.
+- Se eliminó el alias incorrecto hacia BGG 432.
+- Se agregó una portada estable de la edición correcta.
