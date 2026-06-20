@@ -248,11 +248,25 @@ cols=['Thumb','Juego','BGG ID','BGG','Tipo','Jugadores','Tiempo','Peso','Rating 
 cols=[c for c in cols if c in table.columns]
 grid_df = table[cols].copy()
 
-# AgGrid permite fijar a la izquierda la portada y el nombre mientras se desplaza el resto.
+# Grilla tipo Excel: portada y juego fijos; el resto se recorre horizontalmente.
 gb = GridOptionsBuilder.from_dataframe(grid_df)
-gb.configure_default_column(resizable=True, sortable=True, filter=False, wrapText=False)
-gb.configure_grid_options(rowHeight=52, headerHeight=42, suppressRowClickSelection=True)
-gb.configure_column('Thumb', header_name='', pinned='left', width=72, minWidth=72, maxWidth=72, sortable=False,
+gb.configure_default_column(
+    resizable=True,
+    sortable=True,
+    filter=False,
+    wrapText=False,
+    autoHeight=False,
+    suppressSizeToFit=True,
+)
+gb.configure_grid_options(
+    rowHeight=48,
+    headerHeight=40,
+    suppressRowClickSelection=True,
+    alwaysShowHorizontalScroll=True,
+    suppressHorizontalScroll=False,
+    ensureDomOrder=True,
+)
+gb.configure_column('Thumb', header_name='', pinned='left', lockPinned=True, width=70, minWidth=70, maxWidth=70, sortable=False,
                     cellRenderer=JsCode("""
                     class ImgRenderer {
                       init(params) {
@@ -260,45 +274,46 @@ gb.configure_column('Thumb', header_name='', pinned='left', width=72, minWidth=7
                         this.eGui.style.display = 'flex';
                         this.eGui.style.alignItems = 'center';
                         this.eGui.style.justifyContent = 'center';
+                        this.eGui.style.height = '100%';
                         const img = document.createElement('img');
                         img.src = params.value || '';
-                        img.style.width = '42px';
-                        img.style.height = '42px';
+                        img.style.width = '38px';
+                        img.style.height = '38px';
                         img.style.objectFit = 'cover';
-                        img.style.borderRadius = '5px';
+                        img.style.borderRadius = '4px';
                         this.eGui.appendChild(img);
                       }
                       getGui() { return this.eGui; }
                     }
                     """))
-gb.configure_column('Juego', pinned='left', width=310, minWidth=240)
-gb.configure_column('BGG ID', width=95)
-gb.configure_column('BGG', width=70, cellRenderer=JsCode("""
+gb.configure_column('Juego', pinned='left', lockPinned=True, width=270, minWidth=220, maxWidth=340, tooltipField='Juego')
+gb.configure_column('BGG ID', width=92, minWidth=82, maxWidth=110)
+gb.configure_column('BGG', width=62, minWidth=58, maxWidth=70, cellRenderer=JsCode("""
 function(params) {
   if (!params.value) return '';
   return `<a href="${params.value}" target="_blank" style="text-decoration:none;font-weight:700">↗</a>`;
 }
 """))
-gb.configure_column('Tipo', width=120)
-gb.configure_column('Jugadores', width=105)
-gb.configure_column('Tiempo', width=105)
-gb.configure_column('Peso', width=78)
-gb.configure_column('Rating BGG', width=105)
-gb.configure_column('Partidas', width=85)
-gb.configure_column('Última partida', width=125)
-gb.configure_column('Hace cuánto', width=125)
-gb.configure_column('Fricción', width=95)
-gb.configure_column('Notas personales', width=330, wrapText=True, autoHeight=True)
-gb.configure_column('Motivo fricción', width=330, wrapText=True, autoHeight=True)
+gb.configure_column('Tipo', width=120, minWidth=105, maxWidth=145, tooltipField='Tipo')
+gb.configure_column('Jugadores', width=95, minWidth=88, maxWidth=110)
+gb.configure_column('Tiempo', width=96, minWidth=88, maxWidth=110)
+gb.configure_column('Peso', width=72, minWidth=68, maxWidth=82)
+gb.configure_column('Rating BGG', width=100, minWidth=92, maxWidth=115)
+gb.configure_column('Partidas', width=82, minWidth=76, maxWidth=92)
+gb.configure_column('Última partida', width=118, minWidth=110, maxWidth=130)
+gb.configure_column('Hace cuánto', width=112, minWidth=104, maxWidth=125)
+gb.configure_column('Fricción', width=88, minWidth=82, maxWidth=100)
+gb.configure_column('Notas personales', width=250, minWidth=190, maxWidth=360, tooltipField='Notas personales')
+gb.configure_column('Motivo fricción', width=300, minWidth=220, maxWidth=420, tooltipField='Motivo fricción')
 AgGrid(
     grid_df,
     gridOptions=gb.build(),
-    height=520,
+    height=560,
     fit_columns_on_grid_load=False,
     allow_unsafe_jscode=True,
     theme='streamlit',
     update_on=[],
-    key='coleccion_filtrada_grid',
+    key='coleccion_filtrada_grid_v7',
 )
 
 notes_df = table[table['Notas personales'].astype(str).str.strip() != '']
