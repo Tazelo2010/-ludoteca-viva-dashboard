@@ -27,6 +27,7 @@ div[data-testid="stSidebarHeader"] { display:none; }
 .sidebar-icon { width:32px;height:32px;border-radius:10px;background:#e6f5e8;color:#0d7a54; display:flex;align-items:center;justify-content:center;font-size:18px; }
 .sidebar-title-text { color:#073f3a;font-weight:850;font-size:18px;letter-spacing:.2px; }
 section[data-testid="stSidebar"] label { color:#173b36!important; font-weight:700!important; font-size:13px!important; }
+.filter-label { color:#173b36; font-weight:700; font-size:13px; margin:10px 0 2px 0; }
 section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] div[data-baseweb="select"] { background:#fffdf9!important; border:1px solid #e6dbca!important; border-radius:11px!important; color:#173b36!important; }
 section[data-testid="stSidebar"] div[data-baseweb="select"] * { color:#173b36!important; }
 .header { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:18px; }
@@ -151,7 +152,6 @@ def parse_time_max(text):
 
 def friction_simple(value):
     val = str(value); low = val.lower()
-    if 'muy alta' in low: return 'Muy alta'
     if 'alta' in low: return 'Alta'
     if 'media' in low: return 'Media'
     if 'baja' in low: return 'Baja'
@@ -173,7 +173,11 @@ st.sidebar.markdown('<div class="sidebar-title"><div class="sidebar-icon">⌘</d
 search = st.sidebar.text_input('Buscar', placeholder='Escribí para buscar...')
 type_filter = st.sidebar.selectbox('Tipo', ['Todos', 'Competitivo', 'Cooperativo', 'Campaña', 'Party'])
 players_filter = st.sidebar.selectbox('Jugadores', ['Todos', '1', '2', '3', '4', '5', '6', '7', '8'])
-friction_filter = st.sidebar.selectbox('Fricción', ['Todas', 'Baja', 'Media', 'Alta', 'Muy alta'])
+st.sidebar.markdown('<div class="filter-label">Fricción</div>', unsafe_allow_html=True)
+friction_baja = st.sidebar.checkbox('Baja', value=True, key='friccion_baja')
+friction_media = st.sidebar.checkbox('Media', value=True, key='friccion_media')
+friction_alta = st.sidebar.checkbox('Alta', value=True, key='friccion_alta')
+friction_selected = [label for label, active in [('Baja', friction_baja), ('Media', friction_media), ('Alta', friction_alta)] if active]
 new_filter = st.sidebar.selectbox('Estreno', ['Todos', 'Sin estrenar', 'Estrenados'])
 rotation_filter = st.sidebar.selectbox('Rotación', ['Todos', '< 1 mes', '1–6 meses', '6+ meses', 'Nunca'])
 weight_filter = st.sidebar.selectbox('Peso BGG', ['Todos', 'Ligero', 'Medio', 'Pesado'])
@@ -183,7 +187,11 @@ f = df.copy()
 if search: f = f[f['Nombre'].str.contains(search, case=False, na=False)]
 f = f[f['Tipo'].apply(lambda x: contains_type(x, type_filter))]
 f = f[f['Jugadores'].apply(lambda x: player_match(x, players_filter))]
-if friction_filter != 'Todas': f = f[f['Fricción para mesa'].str.contains(friction_filter, case=False, na=False)]
+if friction_selected:
+    friction_values = f['Fricción para mesa'].apply(friction_simple)
+    f = f[friction_values.isin(friction_selected)]
+else:
+    f = f.iloc[0:0]
 if new_filter == 'Sin estrenar': f = f[f['Partidas_num'] == 0]
 elif new_filter == 'Estrenados': f = f[f['Partidas_num'] > 0]
 today = pd.Timestamp.today()
@@ -236,7 +244,7 @@ with g1:
         st.markdown('### Fricción')
         fr=f['Fricción para mesa'].replace('', 'Sin dato').value_counts().reset_index(); fr.columns=['Fricción','Cantidad']
         if len(fr):
-            fig=px.pie(fr, names='Fricción', values='Cantidad', hole=.55, color='Fricción', color_discrete_map={'Baja':'#69c184','Media':'#f0a440','Alta':'#ef6b5f','Muy alta':'#d85c5c','Sin dato':'#d8d2c8'})
+            fig=px.pie(fr, names='Fricción', values='Cantidad', hole=.55, color='Fricción', color_discrete_map={'Baja':'#69c184','Media':'#f0a440','Alta':'#ef6b5f','Sin dato':'#d8d2c8'})
             fig.update_layout(height=260, margin=dict(l=5,r=5,t=5,b=5), paper_bgcolor='rgba(0,0,0,0)', font=dict(size=12,color='#65706d'), legend=dict(orientation='h', y=-0.05))
             st.plotly_chart(fig, use_container_width=True)
         st.caption(f'Total: {len(f)} juegos')
