@@ -2,6 +2,8 @@
 import json
 import re
 import time
+import base64
+from pathlib import Path
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -21,7 +23,7 @@ PLACEHOLDER_IMG = "https://raw.githubusercontent.com/twitter/twemoji/master/asse
 BGG_METADATA_ALIASES = {}
 MANUAL_IMAGE_OVERRIDES = {
     "417197": "https://www.variantes.com/57017-large_default/rebirth.jpg",
-    "246912": "https://www.amigo.games/wp-content/uploads/2024/08/18415_box.jpg",
+    "246912": "asset:assets/take5.png",
 }
 
 st.set_page_config(page_title="Ludoteca Viva", page_icon="🎲", layout="wide", initial_sidebar_state="expanded")
@@ -66,6 +68,21 @@ h3 { color:#0b3f3b!important; font-size:18px!important; }
 .stButton > button:hover { background:#e3f3e6; color:#0b614b; border:1px solid #cfe4d2; }
 </style>
 """, unsafe_allow_html=True)
+
+
+
+def resolve_image_source(value):
+    """Convierte imágenes locales en data URI para que AgGrid no dependa de hotlinking externo."""
+    value = str(value or "").strip()
+    if not value.startswith("asset:"):
+        return value
+    path = Path(value.split(":", 1)[1])
+    try:
+        mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{mime};base64,{encoded}"
+    except Exception:
+        return PLACEHOLDER_IMG
 
 def normalize_bgg_id(value):
     if pd.isna(value): return ""
@@ -171,7 +188,7 @@ def load_data():
         nm = str(row.get('Nombre', '')).strip().lower()
         return by_id.get(bid) or by_name.get(nm) or {}
     df['_catalog'] = df.apply(catalog_info, axis=1)
-    df['Thumb'] = df.apply(lambda row: (MANUAL_IMAGE_OVERRIDES.get(row['BGG_ID']) or live_bgg.get(row['BGG_ID'], {}).get('thumb') or row['_catalog'].get('thumb') or PLACEHOLDER_IMG), axis=1)
+    df['Thumb'] = df.apply(lambda row: resolve_image_source(MANUAL_IMAGE_OVERRIDES.get(row['BGG_ID']) or live_bgg.get(row['BGG_ID'], {}).get('thumb') or row['_catalog'].get('thumb') or PLACEHOLDER_IMG), axis=1)
     df['Mejor a'] = df['BGG_ID'].apply(lambda bid: live_bgg.get(bid, {}).get('best_at') or 'Sin dato BGG')
     if 'Puntuación BGG' in df.columns:
         df['Rating_num'] = pd.to_numeric(df['Puntuación BGG'].astype(str).str.replace(',', '.', regex=False), errors='coerce')
@@ -454,7 +471,7 @@ AgGrid(
     allow_unsafe_jscode=True,
     theme='streamlit',
     update_on=[],
-    key='coleccion_filtrada_grid_v9',
+    key='coleccion_filtrada_grid_v11',
 )
 st.caption('Tiempo total estimado = preparación + explicación inicial + partida. Es una guía práctica; se ajusta al número de jugadores elegido, al peso BGG y a la fricción registrada.')
 

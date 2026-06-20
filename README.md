@@ -1,13 +1,5 @@
-# Ludoteca viva – UI v9
+# Ludoteca Viva v11
 
-Correcciones:
-- El nombre del juego vuelve a mostrarse y funciona como enlace a BGG.
-- Se agregan imágenes de respaldo para Rebirth y Take 5 & Take A Number.
-- La consulta de “Mejor a” reintenta cuando BGG responde 202.
-- Si BGG no responde, la celda muestra “Sin dato BGG” en vez de quedar vacía.
-
-
-## v10
-- Take 5 & Take A Number usa su BGG ID real 246912.
-- Se eliminó el alias incorrecto hacia BGG 432.
-- Se agregó una portada estable de la edición correcta.
+- La imagen de Take 5 & Take A Number se incluye dentro del proyecto como recurso local.
+- Se convierte a data URI para que la grilla la muestre aunque el sitio externo bloquee el hotlink.
+- Se mantiene el BGG ID correcto: 246912.
