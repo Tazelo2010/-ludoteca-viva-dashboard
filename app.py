@@ -23,7 +23,7 @@ PLACEHOLDER_IMG = "https://raw.githubusercontent.com/twitter/twemoji/master/asse
 BGG_METADATA_ALIASES = {}
 MANUAL_IMAGE_OVERRIDES = {
     "417197": "https://www.variantes.com/57017-large_default/rebirth.jpg",
-    "246912": "asset:assets/take5.png",
+    "246912": "assets/take5.png",
 }
 
 st.set_page_config(page_title="Ludoteca Viva", page_icon="🎲", layout="wide", initial_sidebar_state="expanded")
